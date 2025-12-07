@@ -31,9 +31,20 @@ async function run() {
 
         // collections
         const db = client.db('Micro_Loan')
-        
+
     }
     finally{
 
     }
 }
+run().catch(console.dir);
+
+
+
+app.get('/', (req, res) => {
+    res.send('Zap is shifting')
+})
+
+app.listen(port, () => {
+    console.log(`Example app listening on port ${port}`)
+})
