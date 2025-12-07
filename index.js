@@ -2,14 +2,46 @@ const express = require('express')
 const cors = require('cors');
 const app = express()
 require('dotenv').config()
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const port = process.env.PORT || 3000
+
+
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./micro-loan-firebase-adminsdk.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
 
 
 // middlewere
 app.use(express.json())
 app.use(cors())
+
+
+// verify user with firebase token
+const verifyFirebaseToken = async (req, res, next) => {
+
+    const token = req.headers.authorization
+
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+    try {
+        const idToken = token.split(' ')[1]
+        const decoded = await admin.auth().verifyIdToken(idToken)
+        console.log("decoded in the token", decoded)
+        req.decoded_email = decoded.email
+    } catch (error) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+    next()
+}
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.pbqwzvg.mongodb.net/?appName=Cluster0`;
@@ -36,6 +68,21 @@ async function run() {
 
 
 
+        // verify admin
+        const veryfyAdmin = async (req, res, next) => {
+            const email = req.decoded_email
+            const query = { email }
+            const user = await userCollection.findOne(query)
+
+            if (!user || user.role !== 'admin') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+
+            next()
+        }
+
+
+
         // user related api
 
 
@@ -57,6 +104,19 @@ async function run() {
             res.send({ role: user?.role || 'user' })
         })
 
+        // patch user (for user managment)
+        app.patch('/users/:id/role', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
+            const id = req.params.id
+            const roleInfo = req.body
+            const query = { _id: new ObjectId(id) }
+            const updateDoc = {
+                $set: {
+                    role: roleInfo.role
+                }
+            }
+            const result = await userCollection.updateOne(query, updateDoc)
+            res.send(result)
+        })
 
 
         // create user
@@ -76,15 +136,22 @@ async function run() {
         })
 
 
+        app.get('/loans', async (req, res) => {
+            const query = {}
+            const options = { sort: { createdAt: -1 } }
+
+            const cursor = loansCollection.find(query, options)
+            const result = await cursor.toArray()
+            res.send(result)
+        })
 
 
         // create loan for (user)
         app.post('/loans', async (req, res) => {
             const loan = req.body
-            const loanId = generateLoanId()
+
             // Loan created time
             loan.createdAt = new Date()
-            loan.loanId = loanId
 
             const result = await loansCollection.insertOne(loan)
             res.send(result)
