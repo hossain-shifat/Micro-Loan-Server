@@ -32,10 +32,11 @@ async function run() {
         // collections
         const db = client.db('Micro_Loan')
         const userCollection = db.collection('users')
+        const loansCollection = db.collection('loans')
 
 
         // create user
-        
+
         app.post('/users', async (req, res) => {
             const user = req.body
             user.role = 'user';
@@ -50,6 +51,22 @@ async function run() {
             const result = await userCollection.insertOne(user)
             res.send(result)
         })
+
+
+
+        // create loan for (user)
+        app.post('/loans', async (req, res) => {
+            const loan = req.body
+            const loanId = generateTrakingId()
+            // Loan created time
+            loan.createdAt = new Date()
+            loan.loanId = loanId
+
+            const result = await loansCollection.insertOne(loan)
+            res.send(result)
+        })
+
+
 
     }
     finally{
