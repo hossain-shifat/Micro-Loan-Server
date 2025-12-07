@@ -31,6 +31,25 @@ async function run() {
 
         // collections
         const db = client.db('Micro_Loan')
+        const userCollection = db.collection('users')
+
+
+        // create user
+        
+        app.post('/users', async (req, res) => {
+            const user = req.body
+            user.role = 'user';
+            user.createdAt = new Date()
+            const email = user.email
+
+            const userExist = await userCollection.findOne({ email })
+            if (userExist) {
+                return res.send({ message: 'user exist' })
+            }
+
+            const result = await userCollection.insertOne(user)
+            res.send(result)
+        })
 
     }
     finally{
