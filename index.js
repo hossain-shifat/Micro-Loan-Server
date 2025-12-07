@@ -35,8 +35,31 @@ async function run() {
         const loansCollection = db.collection('loans')
 
 
-        // create user
 
+        // user related api
+
+
+        //get users
+        app.get('/users', async (req, res) => {
+            const search = req.query.search
+            const query = {}
+
+            const cursor = userCollection.find(query).sort({ createdAt: -1 })
+            const result = await cursor.toArray()
+            res.send(result)
+        })
+
+        //get users by email/role
+        app.get('/users/:email/role', async (req, res) => {
+            const email = req.params.email
+            const query = { email }
+            const user = await userCollection.findOne(query)
+            res.send({ role: user?.role || 'user' })
+        })
+
+
+
+        // create user
         app.post('/users', async (req, res) => {
             const user = req.body
             user.role = 'user';
@@ -54,10 +77,11 @@ async function run() {
 
 
 
+
         // create loan for (user)
         app.post('/loans', async (req, res) => {
             const loan = req.body
-            const loanId = generateTrakingId()
+            const loanId = generateLoanId()
             // Loan created time
             loan.createdAt = new Date()
             loan.loanId = loanId
