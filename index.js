@@ -135,7 +135,7 @@ async function run() {
             res.send(result)
         })
 
-
+        // get all loans (for all loan page(users) and admin)
         app.get('/loans', async (req, res) => {
             const query = {}
             const options = { sort: { createdAt: -1 } }
@@ -144,6 +144,13 @@ async function run() {
             const result = await cursor.toArray()
             res.send(result)
         })
+
+        // get loans for home route
+        app.get('/home-loans', async (req, res) => {
+            const cursor = loansCollection.find({}).sort({ createdAt: -1 }).limit(6);
+            const result = await cursor.toArray();
+            res.send(result);
+        });
 
 
         // create loan for (user)
