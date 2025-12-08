@@ -189,13 +189,23 @@ async function run() {
 
             const updateDoc = {
                 $set: {
-                    status: status
+                    status: status,
+                    statusUpdatedAt: new Date()
                 }
             }
-            
+
             const result = await applicationsCollection.updateOne(query, updateDoc)
             res.send(result);
         });
+
+        // add delete api (for approved applications)
+        app.delete('/applications/:id', verifyFirebaseToken, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await applicationsCollection.deleteOne(query);
+            res.send(result)
+        });
+
 
 
         //?loans apis (for managers and andmins)
@@ -217,7 +227,7 @@ async function run() {
             const cursor = loansCollection.find({}).sort({ createdAt: -1 }).limit(6);
             const result = await cursor.toArray();
             res.send(result);
-        });
+        })
 
 
         // create loan (manager)
