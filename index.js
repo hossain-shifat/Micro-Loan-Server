@@ -5,6 +5,14 @@ require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const port = process.env.PORT || 3000
+const crypto = require('crypto');
+
+function generateLoanId() {
+    const prefix = 'LOAN';
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const random = crypto.randomBytes(3).toString('hex').toUpperCase();
+    return `${prefix}-${date}-${random}`;
+}
 
 
 const admin = require("firebase-admin");
@@ -143,10 +151,13 @@ async function run() {
         app.get('/applications', async (req, res) => {
             const query = {}
 
-            const { email } = req.query
+            const { email, status } = req.query
 
             if (email) {
                 query.email = email
+            }
+            if (status) {
+                query.status = status
             }
 
             const options = { sort: { createdAt: -1 } }
@@ -155,16 +166,6 @@ async function run() {
             const result = await cursor.toArray()
             res.send(result)
         })
-
-        // get all pending application (for manager)
-        app.get('/applications/pending', verifyFirebaseToken, async (req, res) => {
-            const query = { status: 'pending' };
-            const options = { sort: { createdAt: -1 } };
-
-            const cursor = applicationsCollection.find(query, options);
-            const result = await cursor.toArray();
-            res.send(result);
-        });
 
 
         // post for apply loan
@@ -179,13 +180,30 @@ async function run() {
             res.send(result)
         })
 
+        // application pathch for (manager)
+        app.patch('/applications/:id/status', verifyFirebaseToken, async (req, res) => {
+            const id = req.params.id
+            const { status } = req.body
+
+            const query = { _id: new ObjectId(id) }
+
+            const updateDoc = {
+                $set: {
+                    status: status
+                }
+            }
+            
+            const result = await applicationsCollection.updateOne(query, updateDoc)
+            res.send(result);
+        });
+
 
         //?loans apis (for managers and andmins)
 
         // get all loans (for all loan page(users) and admin)
         app.get('/loans', async (req, res) => {
             const query = {}
-            const options = { sort: { createdAt: 1 } }
+            const options = { sort: { createdAt: -1 } }
 
             const cursor = loansCollection.find(query, options)
             const result = await cursor.toArray()
@@ -202,12 +220,13 @@ async function run() {
         });
 
 
-        // create loan for (user)
+        // create loan (manager)
         app.post('/loans', async (req, res) => {
             const loan = req.body
 
             // Loan created time
             loan.createdAt = new Date()
+            loan.loanId = generateLoanId()
 
             const result = await loansCollection.insertOne(loan)
             res.send(result)
