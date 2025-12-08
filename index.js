@@ -156,16 +156,15 @@ async function run() {
             res.send(result)
         })
 
-        // get all application (using manager)
-        app.get('/applications/all', async (req, res) => {
-            const query = {}
+        // get all pending application (for manager)
+        app.get('/applications/pending', verifyFirebaseToken, async (req, res) => {
+            const query = { status: 'pending' };
+            const options = { sort: { createdAt: -1 } };
 
-            const options = { sort: { createdAt: -1 } }
-
-            const cursor = applicationsCollection.find(query, options)
-            const result = await cursor.toArray()
-            res.send(result)
-        })
+            const cursor = applicationsCollection.find(query, options);
+            const result = await cursor.toArray();
+            res.send(result);
+        });
 
 
         // post for apply loan
@@ -217,7 +216,7 @@ async function run() {
 
 
     }
-    finally{
+    finally {
 
     }
 }
