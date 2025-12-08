@@ -65,6 +65,7 @@ async function run() {
         const db = client.db('Micro_Loan')
         const userCollection = db.collection('users')
         const loansCollection = db.collection('loans')
+        const applicationsCollection = db.collection('applications')
 
 
 
@@ -135,15 +136,37 @@ async function run() {
             res.send(result)
         })
 
+
+        //? loan application apis (for users borrowers)
+
+
+
+        // post for apply loan
+        app.post('/applications', verifyFirebaseToken, async (req, res) => {
+            const application = req.body
+
+            application.status = 'pending'
+            application.applicationFeeStatus = 'unpaid'
+            application.createdAt = new Date()
+
+            const result = await applicationsCollection.insertOne(application)
+            res.send(result)
+        })
+
+
+        //?loans apis (for managers and andmins)
+
         // get all loans (for all loan page(users) and admin)
         app.get('/loans', async (req, res) => {
             const query = {}
-            const options = { sort: { createdAt: -1 } }
+            const options = { sort: { createdAt: 1 } }
 
             const cursor = loansCollection.find(query, options)
             const result = await cursor.toArray()
             res.send(result)
         })
+
+
 
         // get loans for home route
         app.get('/home-loans', async (req, res) => {
