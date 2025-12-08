@@ -100,6 +100,13 @@ async function run() {
             const search = req.query.search
             const query = {}
 
+            if (search) {
+                query.$or = [
+                    { displayName: { $regex: search, $options: 'i' } },
+                    { email: { $regex: search, $options: 'i' } }
+                ]
+            }
+
             const cursor = userCollection.find(query).sort({ createdAt: -1 })
             const result = await cursor.toArray()
             res.send(result)
@@ -220,6 +227,19 @@ async function run() {
             res.send(result)
         })
 
+
+        //get loans by emain (for manager manage loans)
+        app.get('/loans', async (req, res) => {
+            const email = req.query.email;
+            let query = {}
+
+            if (email) {
+                query.email = email
+            }
+            const options = {sort: { createdAt: -1 }}
+            const result = await loansCollection.find(query, options).toArray()
+            res.send(result)
+        });
 
 
         // get loans for home route
