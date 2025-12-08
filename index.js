@@ -139,6 +139,22 @@ async function run() {
 
         //? loan application apis (for users borrowers)
 
+        // get all application using email
+        app.get('/applications', async (req, res) => {
+            const query = {}
+
+            const { email } = req.query
+
+            if (email) {
+                query.email = email
+            }
+
+            const options = { sort: { createdAt: -1 } }
+
+            const cursor = applicationsCollection.find(query, options)
+            const result = await cursor.toArray()
+            res.send(result)
+        })
 
 
         // post for apply loan
