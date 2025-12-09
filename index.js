@@ -90,6 +90,32 @@ async function run() {
             next()
         }
 
+        // verify Manager
+        const veryfyManager = async (req, res, next) => {
+            const email = req.decoded_email
+            const query = { email }
+            const user = await userCollection.findOne(query)
+
+            if (!user || user.role !== 'manager') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+
+            next()
+        }
+
+        // verify admin and manager both
+        const verifyAdminOrManager = async (req, res, next) => {
+            const email = req.decoded_email;
+            const user = await userCollection.findOne({ email });
+
+            if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
+                return res.status(403).send({ message: 'forbidden access' });
+            }
+
+            next();
+        };
+
+
 
 
         // user related api
@@ -187,7 +213,7 @@ async function run() {
             res.send(result)
         })
 
-        // application pathch for (manager)
+        // application patch for (manager)
         app.patch('/applications/:id/status', verifyFirebaseToken, async (req, res) => {
             const id = req.params.id
             const { status } = req.body
@@ -236,7 +262,7 @@ async function run() {
             if (email) {
                 query.email = email
             }
-            const options = {sort: { createdAt: -1 }}
+            const options = { sort: { createdAt: -1 } }
             const result = await loansCollection.find(query, options).toArray()
             res.send(result)
         });
@@ -251,7 +277,7 @@ async function run() {
 
 
         // create loan (manager)
-        app.post('/loans', async (req, res) => {
+        app.post('/loans', veryfyManager, async (req, res) => {
             const loan = req.body
 
             // Loan created time
@@ -262,8 +288,8 @@ async function run() {
             res.send(result)
         })
 
-        // patch loan (for update modal in manage loan)
-        app.patch('/loans/:id', async (req, res) => {
+        // patch loan (for update modal in manage loan (manager & admin))
+        app.patch('/loans/:id', verifyFirebaseToken, verifyAdminOrManager, async (req, res) => {
 
             const id = req.params.id;
             const updateData = req.body;
