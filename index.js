@@ -262,6 +262,21 @@ async function run() {
             res.send(result)
         })
 
+        // patch loan (for update modal in manage loan)
+        app.patch('/loans/:id', async (req, res) => {
+
+            const id = req.params.id;
+            const updateData = req.body;
+
+            const query = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: updateData
+            }
+            const result = await loansCollection.updateOne(query, updateDoc);
+
+            res.send(result);
+        });
+
 
         // delete loan (for manage loans)
         app.delete('/loans/:id', async (req, res) => {
