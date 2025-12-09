@@ -305,14 +305,14 @@ async function run() {
 
 
         // delete loan (for manage loans)
-        app.delete('/loans/:id', async (req, res) => {
+        app.delete('/loans/:id', verifyFirebaseToken, verifyAdminOrManager, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
 
             const result = await loansCollection.deleteOne(query);
 
             res.send(result);
-        });
+        })
 
 
 
