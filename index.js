@@ -146,6 +146,7 @@ async function run() {
             res.send({ role: user?.role || 'user' })
         })
 
+
         // patch user (for user managment)
         app.patch('/users/:id/role', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
             const id = req.params.id
@@ -161,10 +162,49 @@ async function run() {
         })
 
 
+        app.patch('/users/:id/suspend', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const { reason, feedback } = req.body;
+
+            const query = { _id: new ObjectId(id) };
+
+            const updateDoc = {
+                $set: {
+                    role: "suspended",
+                    reason: reason,
+                    feedback: feedback
+                }
+            };
+
+            const result = await userCollection.updateOne(query, updateDoc);
+
+            res.send(result);
+        });
+
+
+        // for update profile
+        app.patch('/users/profile', verifyFirebaseToken, async (req, res) => {
+            const email = req.decoded.email
+            const { displayName, photoURL } = req.body
+
+            const query = { email: email }
+
+            const updateDoc = {
+                $set: {
+                    displayName,
+                    photoURL
+                }
+            };
+
+            const result = await userCollection.updateOne(query, updateDoc);
+            res.send(result);
+        });
+
+
         // create user
         app.post('/users', async (req, res) => {
             const user = req.body
-            user.role = 'user';
+            user.role = user.applyFor
             user.createdAt = new Date()
             const email = user.email
 
@@ -174,6 +214,14 @@ async function run() {
             }
 
             const result = await userCollection.insertOne(user)
+            res.send(result)
+        })
+
+        // delete api (for user managment)
+        app.delete('/users/:id', async (req, res) => {
+            const id = req.params.id
+            const query = { _id: new ObjectId(id) }
+            const result = await userCollection.deleteOne(query)
             res.send(result)
         })
 
@@ -201,7 +249,7 @@ async function run() {
         })
 
 
-        // post for apply loan
+        // post for application
         app.post('/applications', verifyFirebaseToken, async (req, res) => {
             const application = req.body
 
@@ -265,7 +313,7 @@ async function run() {
             const options = { sort: { createdAt: -1 } }
             const result = await loansCollection.find(query, options).toArray()
             res.send(result)
-        });
+        })
 
 
         // get loans for home route
@@ -275,9 +323,17 @@ async function run() {
             res.send(result);
         })
 
+        app.get('/home-loans/featured', async (req, res) => {
+            const featuredLoans = await loansCollection
+                .find({ showOnHome: true })
+                .sort({ createdAt: -1 })
+                .toArray();
+
+            res.send(featuredLoans);
+        });
 
         // create loan (manager)
-        app.post('/loans', veryfyManager, async (req, res) => {
+        app.post('/loans', async (req, res) => {
             const loan = req.body
 
             // Loan created time
@@ -289,7 +345,7 @@ async function run() {
         })
 
         // patch loan (for update modal in manage loan (manager & admin))
-        app.patch('/loans/:id', verifyFirebaseToken, verifyAdminOrManager, async (req, res) => {
+        app.patch('/loans/:id', verifyFirebaseToken, async (req, res) => {
 
             const id = req.params.id;
             const updateData = req.body;
@@ -301,7 +357,7 @@ async function run() {
             const result = await loansCollection.updateOne(query, updateDoc);
 
             res.send(result);
-        });
+        })
 
 
         // delete loan (for manage loans)
@@ -326,7 +382,7 @@ run().catch(console.dir);
 
 
 app.get('/', (req, res) => {
-    res.send('Zap is shifting')
+    res.send('FinBee is running')
 })
 
 app.listen(port, () => {
