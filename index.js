@@ -19,7 +19,10 @@ function generateLoanId() {
 
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./micro-loan-firebase-adminsdk.json");
+// const serviceAccount = require("./micro-loan-firebase-adminsdk.json");
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
@@ -125,7 +128,7 @@ async function run() {
 
 
         //get users
-        app.get('/users', async (req, res) => {
+        app.get('/users', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
             const search = req.query.search
             const query = {}
 
@@ -221,7 +224,7 @@ async function run() {
         })
 
         // delete api (for user managment)
-        app.delete('/users/:id', async (req, res) => {
+        app.delete('/users/:id', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
             const id = req.params.id
             const query = { _id: new ObjectId(id) }
             const result = await userCollection.deleteOne(query)
@@ -327,16 +330,12 @@ async function run() {
         })
 
         app.get('/home-loans/featured', async (req, res) => {
-            const featuredLoans = await loansCollection
-                .find({ showOnHome: true })
-                .sort({ createdAt: -1 })
-                .toArray();
-
+            const featuredLoans = await loansCollection.find({ showOnHome: true }).sort({ createdAt: -1 }).toArray();
             res.send(featuredLoans);
         });
 
         // create loan (manager)
-        app.post('/loans', async (req, res) => {
+        app.post('/loans', verifyFirebaseToken, veryfyManager, async (req, res) => {
             const loan = req.body
 
             // Loan created time
@@ -348,7 +347,7 @@ async function run() {
         })
 
         // patch loan (for update modal in manage loan (manager & admin))
-        app.patch('/loans/:id', verifyFirebaseToken, async (req, res) => {
+        app.patch('/loans/:id', verifyFirebaseToken, verifyAdminOrManager, async (req, res) => {
 
             const id = req.params.id;
             const updateData = req.body;
