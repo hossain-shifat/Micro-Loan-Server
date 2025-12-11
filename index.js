@@ -2,7 +2,9 @@ const express = require('express')
 const cors = require('cors');
 const app = express()
 require('dotenv').config()
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
+
+const stripe = require('stripe')(process.env.STRIPE_API)
 
 const port = process.env.PORT || 3000
 const crypto = require('crypto');
@@ -74,6 +76,7 @@ async function run() {
         const userCollection = db.collection('users')
         const loansCollection = db.collection('loans')
         const applicationsCollection = db.collection('applications')
+        const paymentCollection = db.collection('payments')
 
 
 
@@ -302,7 +305,7 @@ async function run() {
         })
 
 
-        //get loans by emain (for manager manage loans)
+        //get loans by email (for manager manage loans)
         app.get('/loans', async (req, res) => {
             const email = req.query.email;
             let query = {}
@@ -369,6 +372,127 @@ async function run() {
 
             res.send(result);
         })
+
+
+        //?payment related apis
+
+        // payment checkout session
+        app.post('/payment-checkout-session', async (req, res) => {
+            const paymentInfo = req.body;
+            const amount = 10 * 100
+
+            const session = await stripe.checkout.sessions.create({
+                line_items: [
+                    {
+                        price_data: {
+                            currency: 'USD',
+                            unit_amount: amount,
+                            product_data: {
+                                name: `Loan Application Fee for ${paymentInfo.loanTitle}`
+                            }
+                        },
+                        quantity: 1,
+                    },
+                ],
+                mode: 'payment',
+                metadata: {
+                    applicationId: paymentInfo.applicationId,
+                    loanId: paymentInfo.loanId,
+                    loanTitle: paymentInfo.loanTitle,
+                    borrowerName: `${paymentInfo.firstName} ${paymentInfo.lastName}`,
+                    borrowerEmail: paymentInfo.email,
+                    borrowerPhone: paymentInfo.contactNumber
+                },
+                customer_email: paymentInfo.email,
+                success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
+            });
+
+            res.send({ url: session.url });
+        })
+
+        // payment success
+        app.patch('/payment-success', async (req, res) => {
+            const sessionId = req.query.session_id;
+            const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+            console.log('Stripe session retrieved:', session);
+
+            const transactionId = session.payment_intent;
+
+
+            const paymentExist = await paymentCollection.findOne({ transactionId });
+
+            if (paymentExist) {
+                return res.send({
+                    message: 'already exist',
+                    transactionId,
+                    loanId: paymentExist.loanId,
+                    amount: paymentExist.amount,
+                    customerEmail: paymentExist.customerEmail,
+                    paidAt: paymentExist.paidAt
+                });
+            }
+
+            if (session.payment_status === 'paid') {
+                const applicationId = session.metadata.applicationId;
+                const loanId = session.metadata.loanId;
+
+                const query = { _id: new ObjectId(applicationId) };
+                const update = {
+                    $set: {
+                        paymentStatus: 'paid',
+                        transactionId: transactionId
+                    }
+                };
+                const result = await applicationsCollection.updateOne(query, update);
+
+                const payment = {
+                    amount: session.amount_total / 100,
+                    currency: session.currency,
+                    customerEmail: session.customer_email,
+                    loanId: loanId,
+                    loanTitle: session.metadata.loanTitle,
+                    borrowerName: session.metadata.borrowerName,
+                    borrowerPhone: session.metadata.borrowerPhone,
+                    applicationId: applicationId,
+                    transactionId: transactionId,
+                    paymentStatus: session.payment_status,
+                    paidAt: new Date()
+                };
+
+                const resultPayment = await paymentCollection.insertOne(payment);
+
+                return res.send({
+                    success: true,
+                    modifyApplication: result,
+                    transactionId,
+                    amount: session.amount_total / 100,
+                    customerEmail: session.customer_email,
+                    paidAt: new Date(),
+                    paymentInfo: resultPayment
+                });
+            }
+
+            res.send({ success: false });
+        })
+
+        // payment details (for transaction history)
+        app.get('/payments', verifyFirebaseToken, async (req, res) => {
+            const email = req.query.email;
+            const query = {};
+
+            if (email) {
+                query.customerEmail = email;
+                if (email !== req.decoded_email) {
+                    return res.status(403).send({ message: 'forbidden access' });
+                }
+            }
+            const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
+            const result = await cursor.toArray();
+
+            res.send(result);
+        });
 
 
 
