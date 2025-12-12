@@ -84,7 +84,7 @@ async function run() {
 
 
         // verify admin
-        const veryfyAdmin = async (req, res, next) => {
+        const verifyAdmin = async (req, res, next) => {
             const email = req.decoded_email
             const query = { email }
             const user = await userCollection.findOne(query)
@@ -97,7 +97,7 @@ async function run() {
         }
 
         // verify Manager
-        const veryfyManager = async (req, res, next) => {
+        const verifyManager = async (req, res, next) => {
             const email = req.decoded_email
             const query = { email }
             const user = await userCollection.findOne(query)
@@ -128,7 +128,7 @@ async function run() {
 
 
         //get users
-        app.get('/users', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
+        app.get('/users', verifyFirebaseToken, verifyAdmin, async (req, res) => {
             const search = req.query.search
             const query = {}
 
@@ -154,7 +154,7 @@ async function run() {
 
 
         // patch user (for user managment)
-        app.patch('/users/:id/role', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
+        app.patch('/users/:id/role', verifyFirebaseToken, verifyAdmin, async (req, res) => {
             const id = req.params.id
             const roleInfo = req.body
             const query = { _id: new ObjectId(id) }
@@ -168,7 +168,7 @@ async function run() {
         })
 
 
-        app.patch('/users/:id/suspend', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
+        app.patch('/users/:id/suspend', verifyFirebaseToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const { reason, feedback } = req.body;
 
@@ -224,7 +224,7 @@ async function run() {
         })
 
         // delete api (for user managment)
-        app.delete('/users/:id', verifyFirebaseToken, veryfyAdmin, async (req, res) => {
+        app.delete('/users/:id', verifyFirebaseToken, verifyAdmin, async (req, res) => {
             const id = req.params.id
             const query = { _id: new ObjectId(id) }
             const result = await userCollection.deleteOne(query)
@@ -335,7 +335,7 @@ async function run() {
         });
 
         // create loan (manager)
-        app.post('/loans', verifyFirebaseToken, veryfyManager, async (req, res) => {
+        app.post('/loans', verifyFirebaseToken, verifyManager, async (req, res) => {
             const loan = req.body
 
             // Loan created time
@@ -491,6 +491,142 @@ async function run() {
             const result = await cursor.toArray();
 
             res.send(result);
+        })
+
+        // ?stats
+
+        app.get('/admin/dashboard-stats',  async (req, res) => {
+            // Total users by role
+            const usersByRole = await userCollection.aggregate([
+                {
+                    $group: {
+                        _id: "$role",
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                        role: "$_id",
+                        count: 1,
+                        _id: 0
+                    }
+                }
+            ]).toArray();
+
+            // find recent user
+            const recentUsers = await userCollection
+                .find({}, { projection: { email: 1, displayName: 1, role: 1 } })
+                .sort({ createdAt: -1 })
+                .limit(6)
+                .toArray();
+
+            // Total loans
+            const totalLoans = await loansCollection.countDocuments();
+
+            // Applications by status
+            const applicationsByStatus = await applicationsCollection.aggregate([
+                {
+                    $group: {
+                        _id: "$status",
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                        status: "$_id",
+                        count: 1,
+                        _id: 0
+                    }
+                }
+            ]).toArray();
+
+            // Total application amount
+            const totalApplicationAmount = await applicationsCollection.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalAmount: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                }
+            ]).toArray();
+
+            // Approved application amount
+            const approvedAmount = await applicationsCollection.aggregate([
+                {
+                    $match: { status: "approved" }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalApproved: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                }
+            ]).toArray();
+
+            // Recent applications
+            const recentApplications = await applicationsCollection.aggregate([
+                {
+                    $sort: { createdAt: -1 }
+                },
+                {
+                    $limit: 5
+                },
+                {
+                    $project: {
+                        firstName: 1,
+                        lastName: 1,
+                        email: 1,
+                        loanAmount: 1,
+                        status: 1,
+                        createdAt: 1
+                    }
+                }
+            ]).toArray();
+
+            // Monthly application trends (last 6 months)
+            const monthlyTrends = await applicationsCollection.aggregate([
+                {
+                    $match: {
+                        createdAt: {
+                            $gte: new Date(new Date().setMonth(new Date().getMonth() - 6))
+                        }
+                    }
+                },
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$createdAt" },
+                            month: { $month: "$createdAt" }
+                        },
+                        count: { $sum: 1 },
+                        totalAmount: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                },
+                {
+                    $sort: { "_id.year": 1, "_id.month": 1 }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        year: "$_id.year",
+                        month: "$_id.month",
+                        count: 1,
+                        totalAmount: 1
+                    }
+                }
+            ]).toArray();
+
+            res.send({
+                usersByRole,
+                recentUsers,
+                totalLoans,
+                applicationsByStatus,
+                totalApplicationAmount: totalApplicationAmount[0]?.totalAmount || 0,
+                approvedAmount: approvedAmount[0]?.totalApproved || 0,
+                revenue: revenue[0]?.totalRevenue || 0,
+                recentApplications,
+                monthlyTrends
+            });
         });
 
 
@@ -508,6 +644,4 @@ app.get('/', (req, res) => {
     res.send('FinBee is running')
 })
 
-app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`)
-})
+app.listen(port)
