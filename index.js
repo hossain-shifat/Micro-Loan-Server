@@ -495,6 +495,7 @@ async function run() {
 
         // ?stats
 
+        // admin dashboard (for admin dashboard)
         app.get('/admin/dashboard-stats',  async (req, res) => {
             // Total users by role
             const usersByRole = await userCollection.aggregate([
@@ -569,12 +570,13 @@ async function run() {
                     $sort: { createdAt: -1 }
                 },
                 {
-                    $limit: 5
+                    $limit: 24
                 },
                 {
                     $project: {
                         firstName: 1,
                         lastName: 1,
+                        loanId: 1,
                         email: 1,
                         loanAmount: 1,
                         status: 1,
@@ -583,7 +585,7 @@ async function run() {
                 }
             ]).toArray();
 
-            // Monthly application trends (last 6 months)
+            // Monthly application trends
             const monthlyTrends = await applicationsCollection.aggregate([
                 {
                     $match: {
@@ -614,7 +616,7 @@ async function run() {
                         totalAmount: 1
                     }
                 }
-            ]).toArray();
+            ]).toArray()
 
             res.send({
                 usersByRole,
@@ -623,9 +625,198 @@ async function run() {
                 applicationsByStatus,
                 totalApplicationAmount: totalApplicationAmount[0]?.totalAmount || 0,
                 approvedAmount: approvedAmount[0]?.totalApproved || 0,
-                revenue: revenue[0]?.totalRevenue || 0,
                 recentApplications,
                 monthlyTrends
+            })
+        })
+
+
+        // manager dashboard (for manager dashboard)
+
+        app.get('/manager/dashboard-stats',  async (req, res) => {
+            const managerEmail = req.decoded_email;
+
+            // Total loans created by this manager
+            const totalLoans = await loansCollection.countDocuments({ managerEmail });
+
+            // Get all loan IDs created by this manager
+            const managerLoans = await loansCollection.find({ managerEmail }).toArray();
+            const loanIds = managerLoans.map(loan => loan.loanId);
+
+            // Pending applications count
+            const pendingApplications = await applicationsCollection.countDocuments({
+                loanId: { $in: loanIds },
+                status: "pending"
+            });
+
+            // Approved applications count
+            const approvedApplications = await applicationsCollection.countDocuments({
+                loanId: { $in: loanIds },
+                status: "approved"
+            });
+
+            // Rejected applications count
+            const rejectedApplications = await applicationsCollection.countDocuments({
+                loanId: { $in: loanIds },
+                status: "rejected"
+            });
+
+            // Total application amount for manager's loans
+            const totalAmount = await applicationsCollection.aggregate([
+                {
+                    $match: { loanId: { $in: loanIds } }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                }
+            ]).toArray();
+
+            // Applications by loan category
+            const applicationsByCategory = await applicationsCollection.aggregate([
+                {
+                    $match: { loanId: { $in: loanIds } }
+                },
+                {
+                    $lookup: {
+                        from: "loans",
+                        localField: "loanId",
+                        foreignField: "loanId",
+                        as: "loanDetails"
+                    }
+                },
+                {
+                    $unwind: "$loanDetails"
+                },
+                {
+                    $group: {
+                        _id: "$loanDetails.category",
+                        count: { $sum: 1 },
+                        totalAmount: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                },
+                {
+                    $project: {
+                        category: "$_id",
+                        count: 1,
+                        totalAmount: 1,
+                        _id: 0
+                    }
+                }
+            ]).toArray();
+
+            // Recent applications
+            const recentApplications = await applicationsCollection.aggregate([
+                {
+                    $match: { loanId: { $in: loanIds } }
+                },
+                {
+                    $sort: { createdAt: -1 }
+                },
+                {
+                    $limit: 24
+                },
+                {
+                    $project: {
+                        firstName: 1,
+                        lastName: 1,
+                        email: 1,
+                        loanAmount: 1,
+                        loanId: 1,
+                        status: 1,
+                        createdAt: 1,
+                        loanTitle: 1
+                    }
+                }
+            ]).toArray()
+
+            // Recent loans
+            const recentLoans = managerLoans
+                .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                .slice(0, 7)
+                .map(loan => ({
+                    loanId: loan.loanId,
+                    loanTitle: loan.loanTitle,
+                    category: loan.category,
+                    interestRate: loan.interestRate,
+                    maxLoanLimit: loan.maxLoanLimit,
+                    showOnHome: loan.showOnHome,
+                    createdAt: loan.createdAt
+                }));
+
+            // Monthly application trends
+            const monthlyTrends = await applicationsCollection.aggregate([
+                {
+                    $match: {
+                        loanId: { $in: loanIds },
+                        createdAt: {
+                            $gte: new Date(new Date().setMonth(new Date().getMonth() - 6))
+                        }
+                    }
+                },
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$createdAt" },
+                            month: { $month: "$createdAt" }
+                        },
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $sort: { "_id.year": 1, "_id.month": 1 }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        year: "$_id.year",
+                        month: "$_id.month",
+                        count: 1
+                    }
+                }
+            ]).toArray();
+
+            // Top performing loans
+            const topLoans = await applicationsCollection.aggregate([
+                {
+                    $match: { loanId: { $in: loanIds } }
+                },
+                {
+                    $group: {
+                        _id: "$loanTitle",
+                        applicationCount: { $sum: 1 },
+                        totalAmount: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                },
+                {
+                    $sort: { applicationCount: -1 }
+                },
+                {
+                    $limit: 10
+                },
+                {
+                    $project: {
+                        loanTitle: "$_id",
+                        applicationCount: 1,
+                        totalAmount: 1,
+                        _id: 0
+                    }
+                }
+            ]).toArray();
+
+            res.send({
+                totalLoans,
+                pendingApplications,
+                approvedApplications,
+                rejectedApplications,
+                totalAmount: totalAmount[0]?.total || 0,
+                applicationsByCategory,
+                recentApplications,
+                recentLoans,
+                monthlyTrends,
+                topLoans
             });
         });
 
@@ -644,4 +835,5 @@ app.get('/', (req, res) => {
     res.send('FinBee is running')
 })
 
-app.listen(port)
+module.exports = app;
+// app.listen(port)
