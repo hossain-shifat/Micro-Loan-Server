@@ -47,7 +47,6 @@ const verifyFirebaseToken = async (req, res, next) => {
     try {
         const idToken = token.split(' ')[1]
         const decoded = await admin.auth().verifyIdToken(idToken)
-        console.log("decoded in the token", decoded)
         req.decoded_email = decoded.email
     } catch (error) {
         return res.status(401).send({ message: 'unauthorized access' })
@@ -415,8 +414,6 @@ async function run() {
             const sessionId = req.query.session_id;
             const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-            console.log('Stripe session retrieved:', session);
-
             const transactionId = session.payment_intent;
 
 
@@ -681,7 +678,7 @@ async function run() {
 
         // manager dashboard (for manager dashboard)
 
-        app.get('/manager/dashboard-stats', verifyFirebaseToken,verifyManager, async (req, res) => {
+        app.get('/manager/dashboard-stats',  async (req, res) => {
             const managerEmail = req.decoded_email;
 
             const managerLoans = await loansCollection.find({
@@ -859,6 +856,179 @@ async function run() {
             })
         })
 
+        // borrower dashboard (for borrower/user dashboard)
+        app.get('/borrower/dashboard-stats', async (req, res) => {
+            const borrowerEmail = req.decoded_email;
+
+            // Total applications by borrower
+            const totalApplications = await applicationsCollection.countDocuments({
+                email: borrowerEmail
+            });
+
+            // Applications by status
+            const pendingApplications = await applicationsCollection.countDocuments({
+                email: borrowerEmail,
+                status: "pending"
+            });
+
+            const approvedApplications = await applicationsCollection.countDocuments({
+                email: borrowerEmail,
+                status: "approved"
+            });
+
+            const rejectedApplications = await applicationsCollection.countDocuments({
+                email: borrowerEmail,
+                status: "rejected"
+            });
+
+            // Total amount requested
+            const totalAmountResult = await applicationsCollection.aggregate([
+                { $match: { email: borrowerEmail } },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                }
+            ]).toArray();
+
+            const totalAmountRequested = totalAmountResult[0]?.total || 0;
+
+            // Approved amount
+            const approvedAmountResult = await applicationsCollection.aggregate([
+                {
+                    $match: {
+                        email: borrowerEmail,
+                        status: "approved"
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                }
+            ]).toArray();
+
+            const approvedAmount = approvedAmountResult[0]?.total || 0;
+
+            // Recent applications
+            const recentApplications = await applicationsCollection.find({
+                email: borrowerEmail
+            })
+                .sort({ createdAt: -1 })
+                .limit(10)
+                .project({
+                    firstName: 1,
+                    lastName: 1,
+                    loanId: 1,
+                    loanTitle: 1,
+                    loanAmount: 1,
+                    status: 1,
+                    createdAt: 1,
+                    applicationFeeStatus: 1,
+                    interestRate: 1
+                })
+                .toArray();
+
+            // Applications by loan type
+            const applicationsByLoanType = await applicationsCollection.aggregate([
+                { $match: { email: borrowerEmail } },
+                {
+                    $group: {
+                        _id: "$loanTitle",
+                        count: { $sum: 1 },
+                        totalAmount: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                },
+                { $sort: { count: -1 } },
+                { $limit: 5 },
+                {
+                    $project: {
+                        loanTitle: "$_id",
+                        count: 1,
+                        totalAmount: 1,
+                        _id: 0
+                    }
+                }
+            ]).toArray();
+
+            // Monthly application trends (last 6 months)
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+            const monthlyTrends = await applicationsCollection.aggregate([
+                {
+                    $match: {
+                        email: borrowerEmail,
+                        createdAt: { $gte: sixMonthsAgo }
+                    }
+                },
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$createdAt" },
+                            month: { $month: "$createdAt" }
+                        },
+                        count: { $sum: 1 },
+                        totalAmount: { $sum: { $toDouble: "$loanAmount" } }
+                    }
+                },
+                { $sort: { "_id.year": 1, "_id.month": 1 } },
+                {
+                    $project: {
+                        _id: 0,
+                        year: "$_id.year",
+                        month: "$_id.month",
+                        count: 1,
+                        totalAmount: 1
+                    }
+                }
+            ]).toArray();
+
+            // Payment history
+            const paymentHistory = await paymentCollection.find({
+                customerEmail: borrowerEmail
+            })
+                .sort({ paidAt: -1 })
+                .limit(5)
+                .project({
+                    loanTitle: 1,
+                    amount: 1,
+                    transactionId: 1,
+                    paidAt: 1,
+                    paymentStatus: 1
+                })
+                .toArray();
+
+            // Total payments made
+            const totalPaymentsResult = await paymentCollection.aggregate([
+                { $match: { customerEmail: borrowerEmail } },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$amount" }
+                    }
+                }
+            ]).toArray();
+
+            const totalPaymentsMade = totalPaymentsResult[0]?.total || 0;
+
+            res.send({
+                totalApplications,
+                pendingApplications,
+                approvedApplications,
+                rejectedApplications,
+                totalAmountRequested,
+                approvedAmount,
+                recentApplications,
+                applicationsByLoanType,
+                monthlyTrends,
+                paymentHistory,
+                totalPaymentsMade
+            })
+        })
+
     }
     finally {
 
@@ -872,6 +1042,6 @@ app.get('/', (req, res) => {
     res.send('FinBee is running')
 })
 
-module.exports = app;
+// module.exports = app;
 
-// app.listen(port)
+app.listen(port)
